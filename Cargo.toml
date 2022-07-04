@@ -14,15 +14,15 @@ opt-level = "z"
 # rust crates
 anyhow = { version = "1.0", features = ["backtrace"] }
 log = "0.4"
-mqtt-protocol = "0.11"
+mqtt-protocol = "0.11.2"
 
 # ESP32 crates
-embedded-hal = "0.2"
-embedded-svc = "0.16"
-esp-idf-hal = "0.32"
-esp-idf-svc = "0.36"
-esp-idf-sys = { version = "0.30", features = ["binstart", "native"] } # `native` uses ESP-IDF instead of PlatformIO
+embedded-hal = "0.2.7"
+embedded-svc = "0.22.0"
+esp-idf-hal = "0.38"
+esp-idf-svc = "0.42"
+esp-idf-sys = { version = "0.31.6", features = ["binstart", "native"] } # `native` uses ESP-IDF instead of PlatformIO
 
 [build-dependencies]
-anyhow = "1.0"
-embuild = "0.28"
+anyhow = "1.0.50"
+embuild = "0.28.5"

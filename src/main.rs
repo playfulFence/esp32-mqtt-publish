@@ -20,8 +20,8 @@ use esp_idf_svc::wifi::EspWifi;
 static LOGGER: EspLogger = EspLogger;
 
 // !!! SET THIS !!!
-const WIFI_SSID: &str = "";
-const WIFI_PASS: &str = "";
+const WIFI_SSID: &str = "iPhone Kirill";
+const WIFI_PASS: &str = "esptesty";
 
 // !!! SET THIS !!!
 const MQTT_ADDR: &str = ""; // host:port
