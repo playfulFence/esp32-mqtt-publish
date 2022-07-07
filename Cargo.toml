@@ -18,7 +18,7 @@ mqtt-protocol = "0.11.2"
 
 # ESP32 crates
 embedded-hal = "0.2.7"
-embedded-svc = "0.22.0"
+embedded-svc = "0.22"
 esp-idf-hal = "0.38"
 esp-idf-svc = "0.42"
 esp-idf-sys = { version = "0.31.6", features = ["binstart", "native"] } # `native` uses ESP-IDF instead of PlatformIO

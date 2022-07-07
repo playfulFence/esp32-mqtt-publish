@@ -2,6 +2,8 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use anyhow::bail;
 use log::info;
 use mqtt::control::ConnectReturnCode;
@@ -20,13 +22,13 @@ use esp_idf_svc::wifi::EspWifi;
 static LOGGER: EspLogger = EspLogger;
 
 // !!! SET THIS !!!
-const WIFI_SSID: &str = "iPhone Kirill";
-const WIFI_PASS: &str = "esptesty";
+const WIFI_SSID: &str = "EspressifSystems";
+const WIFI_PASS: &str = "Espressif32";
 
 // !!! SET THIS !!!
 const MQTT_ADDR: &str = ""; // host:port
-const MQTT_CLIENT_ID: &str = "test_publish";
-const MQTT_TOPIC_NAME: &str = "test_publish";
+const MQTT_CLIENT_ID: &str = "kirill_test";
+const MQTT_TOPIC_NAME: &str = "work plssss!!!!";
 
 fn main() -> anyhow::Result<()> {
     esp_idf_sys::link_patches();
@@ -34,70 +36,61 @@ fn main() -> anyhow::Result<()> {
     log::set_logger(&LOGGER).map(|()| LOGGER.initialize())?;
     LOGGER.set_target_level("", log::LevelFilter::Info);
 
+    #[allow(unused)]
     let netif_stack = Arc::new(EspNetifStack::new()?);
+    #[allow(unused)]
     let sys_loop_stack = Arc::new(EspSysLoopStack::new()?);
+    #[allow(unused)]
     let default_nvs = Arc::new(EspDefaultNvs::new()?);
-
-    let wifi = setup_wifi(
-        netif_stack,
-        sys_loop_stack,
-        default_nvs,
-        WIFI_SSID,
-        WIFI_PASS,
+    let _wifi = wifi(
+        netif_stack.clone(),
+        sys_loop_stack.clone(),
+        default_nvs.clone(),
     )?;
 
-    let mut mqtt_stream = mqtt_connect(&wifi, MQTT_ADDR, MQTT_CLIENT_ID)?;
-
-    loop {
-        let mut delay = delay::FreeRtos;
-
-        // mock a measurement
-        let value = 21;
-
-        let message = format!(r#"{{"measurement":{}}}"#, value);
-
-        mqtt_publish(
-            &wifi,
-            &mut mqtt_stream,
-            MQTT_TOPIC_NAME,
-            &message,
-            QoSWithPacketIdentifier::Level0,
-        )?;
-        delay.delay_ms(10 * 1000_u32);
-    }
+    Ok(())
 }
 
-fn setup_wifi(
+fn wifi(
     netif_stack: Arc<EspNetifStack>,
     sys_loop_stack: Arc<EspSysLoopStack>,
     default_nvs: Arc<EspDefaultNvs>,
-    ssid: &str,
-    password: &str,
 ) -> anyhow::Result<Box<EspWifi>> {
     let mut wifi = Box::new(EspWifi::new(netif_stack, sys_loop_stack, default_nvs)?);
 
     wifi.set_configuration(&Configuration::Client(ClientConfiguration {
-        ssid: ssid.into(),
-        password: password.into(),
+        ssid: "EspressifSystems".into(),
+        password: "Espressif32".into(),
+        auth_method: AuthMethod::None,
         ..Default::default()
     }))?;
 
-    info!("Wifi configuration set, about to get status");
+    println!("Wifi configuration set, about to get status");
 
+    wifi.wait_status_with_timeout(Duration::from_secs(20), |status| !status.is_transitional())
+        .map_err(|e| anyhow::anyhow!("Unexpected Wifi status: {:?}", e))?;
+
+    info!("to get status");
     let status = wifi.get_status();
 
+    info!("got status)");
     if let Status(
-        ClientStatus::Started(ClientConnectionStatus::Connected(ClientIpStatus::Done(_))),
+        ClientStatus::Started(ClientConnectionStatus::Connected(ClientIpStatus::Done(
+            _ip_settings,
+        ))),
         _,
     ) = status
     {
-        info!("Wifi connected");
+        println!("Wifi connected");
     } else {
         bail!("Unexpected Wifi status: {:?}", status);
     }
 
     Ok(wifi)
 }
+
+
+
 
 fn mqtt_connect(_: &EspWifi, mqtt_addr: &str, client_id: &str) -> anyhow::Result<TcpStream> {
     let mut stream = TcpStream::connect(mqtt_addr)?;
