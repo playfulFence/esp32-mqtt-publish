@@ -36,21 +36,24 @@ fn main() -> anyhow::Result<()> {
     log::set_logger(&LOGGER).map(|()| LOGGER.initialize())?;
     LOGGER.set_target_level("", log::LevelFilter::Info);
 
-    #[allow(unused)]
     let netif_stack = Arc::new(EspNetifStack::new()?);
-    #[allow(unused)]
     let sys_loop_stack = Arc::new(EspSysLoopStack::new()?);
-    #[allow(unused)]
     let default_nvs = Arc::new(EspDefaultNvs::new()?);
+
+
+
     let _wifi = wifi(
         netif_stack.clone(),
         sys_loop_stack.clone(),
         default_nvs.clone(),
     )?;
 
+   
+
     Ok(())
 }
 
+#[allow(dead_code)]
 fn wifi(
     netif_stack: Arc<EspNetifStack>,
     sys_loop_stack: Arc<EspSysLoopStack>,
@@ -59,8 +62,8 @@ fn wifi(
     let mut wifi = Box::new(EspWifi::new(netif_stack, sys_loop_stack, default_nvs)?);
 
     wifi.set_configuration(&Configuration::Client(ClientConfiguration {
-        ssid: "EspressifSystems".into(),
-        password: "Espressif32".into(),
+        ssid: WIFI_SSID.into(),
+        password: WIFI_PASS.into(),
         auth_method: AuthMethod::None,
         ..Default::default()
     }))?;
@@ -84,6 +87,10 @@ fn wifi(
         println!("Wifi connected");
     } else {
         bail!("Unexpected Wifi status: {:?}", status);
+    }
+
+    loop {
+        
     }
 
     Ok(wifi)
