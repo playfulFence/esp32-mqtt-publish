@@ -1,34 +1,55 @@
+use std::env;
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::Arc;
+use std::thread;
 
 use std::time::Duration;
 
 use anyhow::bail;
+use esp_idf_hal::prelude::Peripherals;
 use log::info;
+
+
+// MQTT
 use mqtt::control::ConnectReturnCode;
 use mqtt::packet::{ConnackPacket, ConnectPacket, PublishPacketRef, QoSWithPacketIdentifier};
 use mqtt::{Decodable, Encodable, TopicName};
 
 use embedded_hal::blocking::delay::DelayMs;
-use embedded_svc::wifi::*;
-use esp_idf_hal::delay;
+
+use esp_idf_hal::{delay, peripherals};
 use esp_idf_svc::log::EspLogger;
+
+
+use esp_idf_hal::prelude::*;
+use esp_idf_hal::*;
+use esp_idf_sys::*;
+
+// Wi-Fi
+use embedded_svc::wifi::*;
 use esp_idf_svc::netif::EspNetifStack;
 use esp_idf_svc::nvs::EspDefaultNvs;
 use esp_idf_svc::sysloop::EspSysLoopStack;
 use esp_idf_svc::wifi::EspWifi;
 
+
+// Sensors
+use icm42670::{accelerometer::Accelerometer, Address, Icm42670};
+use shared_bus::BusManagerSimple;
+use shtcx::{shtc3, LowPower, PowerMode, ShtC3, Measurement};
+
+
 static LOGGER: EspLogger = EspLogger;
 
 // !!! SET THIS !!!
-const WIFI_SSID: &str = "EspressifSystems";
-const WIFI_PASS: &str = "Espressif32";
+const WIFI_SSID: &str = "EspressifSystems";//env!("RUST_BOARD_MEASUREMENTS_WIFI_SSID");
+const WIFI_PASS: &str = "Espressif32";//env!("RUST_BOARD_MEASUREMENTS_WIFI_PASS");
 
 // !!! SET THIS !!!
-const MQTT_ADDR: &str = ""; // host:port
-const MQTT_CLIENT_ID: &str = "kirill_test";
-const MQTT_TOPIC_NAME: &str = "work plssss!!!!";
+const MQTT_ADDR: &str = "broker.hivemq.com:1883";//env!("RUST_BOARD_MEASUREMENTS_MQTT_ADDR"); // host:port
+const MQTT_CLIENT_ID: &str = "esptest";//env!("RUST_BOARD_MEASUREMENTS_MQTT_CLIENT_ID");
+const MQTT_TOPIC_NAME: &str = "measurements";//env!("RUST_BOARD_MEASUREMENTS_MQTT_TOPIC_NAME");
 
 fn main() -> anyhow::Result<()> {
     esp_idf_sys::link_patches();
@@ -36,19 +57,65 @@ fn main() -> anyhow::Result<()> {
     log::set_logger(&LOGGER).map(|()| LOGGER.initialize())?;
     LOGGER.set_target_level("", log::LevelFilter::Info);
 
-    let netif_stack = Arc::new(EspNetifStack::new()?);
-    let sys_loop_stack = Arc::new(EspSysLoopStack::new()?);
-    let default_nvs = Arc::new(EspDefaultNvs::new()?);
+    unsafe{
 
 
+        let netif_stack = Arc::new(EspNetifStack::new()?);
+        let sys_loop_stack = Arc::new(EspSysLoopStack::new()?);
+        let default_nvs = Arc::new(EspDefaultNvs::new()?);
 
-    let _wifi = wifi(
-        netif_stack.clone(),
-        sys_loop_stack.clone(),
-        default_nvs.clone(),
-    )?;
 
-   
+        let peripherals = Peripherals::take().unwrap();
+
+
+        let i2c = peripherals.i2c0;
+        let sda = peripherals.pins.gpio10;
+        let scl = peripherals.pins.gpio8;
+
+        let config = <i2c::config::MasterConfig as Default>::default().baudrate(100.kHz().into());
+        let mut i2c = i2c::Master::<i2c::I2C0, _, _>::new(i2c, i2c::MasterPins { sda, scl }, config)?;
+    
+        let bus = BusManagerSimple::new(i2c);
+        let mut icm = Icm42670::new(bus.acquire_i2c(), Address::Primary).unwrap();
+        let mut sht = shtc3(bus.acquire_i2c());
+        sht.start_measurement(PowerMode::LowPower);
+
+
+        let _wifi = wifi(
+            netif_stack.clone(),
+            sys_loop_stack.clone(),
+            default_nvs.clone(),
+        )?;
+
+       
+        let mut mqtt_stream = mqtt_connect(&_wifi, MQTT_ADDR, MQTT_CLIENT_ID)?;
+      
+
+        loop {
+        //     let mut delay = delay::FreeRtos;
+            info!("Here!");
+            
+
+            let measurement = sht.get_measurement_result().unwrap();
+            info!("Or here!");
+            let message = format!("TEMP : {:.2}°C\tHUM : {:.3}", measurement.temperature.as_degrees_celsius(),
+                                                                         measurement.humidity.as_percent());
+            info!("About to send measurements : \n\t TEMP : {:.2}°C\tHUM : {:.3}", measurement.temperature.as_degrees_celsius(),
+                                                                                   measurement.humidity.as_percent());
+            mqtt_publish(
+                &_wifi,
+                &mut mqtt_stream,
+                MQTT_TOPIC_NAME,
+                &message,
+                QoSWithPacketIdentifier::Level0,
+            )?;
+            
+            info!("Message sent!\nAbout to start new measurement and sleep a bit");
+            sht.start_measurement(PowerMode::LowPower);
+
+            thread::sleep(Duration::from_secs(5));
+        }
+    }
 
     Ok(())
 }
@@ -89,10 +156,6 @@ fn wifi(
         bail!("Unexpected Wifi status: {:?}", status);
     }
 
-    loop {
-        
-    }
-
     Ok(wifi)
 }
 
@@ -100,6 +163,7 @@ fn wifi(
 
 
 fn mqtt_connect(_: &EspWifi, mqtt_addr: &str, client_id: &str) -> anyhow::Result<TcpStream> {
+
     let mut stream = TcpStream::connect(mqtt_addr)?;
 
     let mut conn = ConnectPacket::new(client_id);
