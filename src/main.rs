@@ -1,4 +1,5 @@
 use std::env;
+use std::f32::consts::E;
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -11,15 +12,18 @@ use esp_idf_hal::prelude::Peripherals;
 use log::info;
 
 
-// MQTT
-use mqtt::control::ConnectReturnCode;
-use mqtt::packet::{ConnackPacket, ConnectPacket, PublishPacketRef, QoSWithPacketIdentifier};
-use mqtt::{Decodable, Encodable, TopicName};
 
 use embedded_hal::blocking::delay::DelayMs;
 
 use esp_idf_hal::{delay, peripherals};
-use esp_idf_svc::log::EspLogger;
+
+
+// MQTT stuff
+use esp_idf_svc::{
+    log::EspLogger,
+    mqtt::client::*,
+};
+use embedded_svc::mqtt::client::{Client, Connection, MessageImpl, Publish, QoS};
 
 
 use esp_idf_hal::prelude::*;
@@ -48,8 +52,8 @@ const WIFI_PASS: &str = "Espressif32";//env!("RUST_BOARD_MEASUREMENTS_WIFI_PASS"
 
 // !!! SET THIS !!!
 const MQTT_ADDR: &str = "broker.hivemq.com:1883";//env!("RUST_BOARD_MEASUREMENTS_MQTT_ADDR"); // host:port
-const MQTT_CLIENT_ID: &str = "esptest";//env!("RUST_BOARD_MEASUREMENTS_MQTT_CLIENT_ID");
-const MQTT_TOPIC_NAME: &str = "measurements";//env!("RUST_BOARD_MEASUREMENTS_MQTT_TOPIC_NAME");
+const MQTT_CLIENT_ID: &str = "playfulFence";//env!("RUST_BOARD_MEASUREMENTS_MQTT_CLIENT_ID");
+const MQTT_TOPIC_NAME: &str = "esp-clock/measurements";//env!("RUST_BOARD_MEASUREMENTS_MQTT_TOPIC_NAME");
 
 fn main() -> anyhow::Result<()> {
     esp_idf_sys::link_patches();
@@ -88,29 +92,60 @@ fn main() -> anyhow::Result<()> {
         )?;
 
        
-        let mut mqtt_stream = mqtt_connect(&_wifi, MQTT_ADDR, MQTT_CLIENT_ID)?;
+        let mqtt_config = MqttClientConfiguration {
+            client_id: Some("esp-clock/measurements"),
+            ..Default::default()
+        };
+        
+        let broker_url = "mqtt://broker.hivemq.com:1883";
+
+        info!("About to connect mqtt-client");
+        let (mut client, mut connection) = 
+            EspMqttClient::new_with_conn(broker_url, &mqtt_config)?;
+
+        info!("Connected");
+
+        // Need to immediately start pumping the connection for messages, or else subscribe() and publish() below will not work
+        // Note that when using the alternative constructor - `EspMqttClient::new` - you don't need to
+        // spawn a new thread, as the messages will be pumped with a backpressure into the callback you provide.
+        // Yet, you still need to efficiently process each message in the callback without blocking for too long.
+        //
+        // Note also that if you go to http://tools.emqx.io/ and then connect and send a message to topic
+        // "rust-esp32-std-demo", the client configured here should receive it.
+
+
+        thread::spawn(move || {
+            info!("MQTT Listening for messages");
+    
+            while let Some(msg) = connection.next() {
+                match msg {
+                    Err(e) => info!("MQTT Message ERROR: {}", e),
+                    Ok(msg) => info!("MQTT Message: {:?}", msg),
+                }
+            }
+    
+            info!("MQTT connection loop exit");
+        });
+
+        client.subscribe("esp-clock/measurements", QoS::AtMostOnce);
+
+        info!("Subscribed to \"measurements\" topic!");
+
+        client.publish("esp-clock/measurements", QoS::AtMostOnce, false, "Is someone there?".as_bytes())?;
+
+        info!("Published a message to topic");
       
 
         loop {
-        //     let mut delay = delay::FreeRtos;
-            info!("Here!");
-            
-
+    
             let measurement = sht.get_measurement_result().unwrap();
-            info!("Or here!");
             let message = format!("TEMP : {:.2}°C\tHUM : {:.3}", measurement.temperature.as_degrees_celsius(),
                                                                          measurement.humidity.as_percent());
-            info!("About to send measurements : \n\t TEMP : {:.2}°C\tHUM : {:.3}", measurement.temperature.as_degrees_celsius(),
-                                                                                   measurement.humidity.as_percent());
-            mqtt_publish(
-                &_wifi,
-                &mut mqtt_stream,
-                MQTT_TOPIC_NAME,
-                &message,
-                QoSWithPacketIdentifier::Level0,
-            )?;
+            info!("About to send measurements : {}", message);
             
-            info!("Message sent!\nAbout to start new measurement and sleep a bit");
+            client.publish("measurements", QoS::AtMostOnce, false, message.as_bytes())?;
+            info!("Message sent!\n\tAbout to start new measurement and sleep a bit");
+
             sht.start_measurement(PowerMode::LowPower);
 
             thread::sleep(Duration::from_secs(5));
@@ -119,6 +154,8 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+
 
 #[allow(dead_code)]
 fn wifi(
@@ -157,49 +194,4 @@ fn wifi(
     }
 
     Ok(wifi)
-}
-
-
-
-
-fn mqtt_connect(_: &EspWifi, mqtt_addr: &str, client_id: &str) -> anyhow::Result<TcpStream> {
-
-    let mut stream = TcpStream::connect(mqtt_addr)?;
-
-    let mut conn = ConnectPacket::new(client_id);
-    conn.set_clean_session(true);
-    let mut buf = Vec::new();
-    conn.encode(&mut buf)?;
-    stream.write_all(&buf[..])?;
-
-    let conn_ack = ConnackPacket::decode(&mut stream)?;
-
-    if conn_ack.connect_return_code() != ConnectReturnCode::ConnectionAccepted {
-        bail!("MQTT failed to receive the connection accepted ack");
-    }
-
-    info!("MQTT connected");
-
-    Ok(stream)
-}
-
-fn mqtt_publish(
-    _: &EspWifi,
-    stream: &mut TcpStream,
-    topic_name: &str,
-    message: &str,
-    qos: QoSWithPacketIdentifier,
-) -> anyhow::Result<()> {
-    let topic = unsafe { TopicName::new_unchecked(topic_name.to_string()) };
-    let bytes = message.as_bytes();
-
-    let publish_packet = PublishPacketRef::new(&topic, qos, bytes);
-
-    let mut buf = Vec::new();
-    publish_packet.encode(&mut buf)?;
-    stream.write_all(&buf[..])?;
-
-    info!("MQTT published message {} to topic {}", message, topic_name);
-
-    Ok(())
 }

@@ -14,7 +14,6 @@ opt-level = "z"
 # rust crates
 anyhow = { version = "1.0.58", features = ["backtrace"] }
 log = "0.4.17"
-mqtt-protocol = "0.11.2"
 
 # ESP32 crates
 embedded-hal            = "0.2.7"
@@ -29,3 +28,6 @@ shared-bus = "0.2.4"
 [build-dependencies]
 anyhow = "1.0.58"
 embuild = "0.29.2"
+
+[patch.crates-io]
+esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal", branch = "bugfix/pthread_convar_timeout_relative" }
