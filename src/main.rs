@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
 
        
         let mqtt_config = MqttClientConfiguration {
-            client_id: Some("esp-clock/measurements"),
+            client_id: Some("esp32c3_rust_board_publisher"),
             ..Default::default()
         };
         
@@ -101,7 +101,12 @@ fn main() -> anyhow::Result<()> {
 
         info!("About to connect mqtt-client");
         let (mut client, mut connection) = 
-            EspMqttClient::new_with_conn(broker_url, &mqtt_config)?;
+            EspMqttClient::new_with_conn(broker_url, &mqtt_config)?;//, move |message_event| {
+            //         match message_event {
+            //             Err(e) => info!("MQTT Message ERROR: {}", e),
+            //             Ok(msg) => info!("MQTT Message: {:?}", msg),
+            //         }
+            // })?;
 
         info!("Connected");
 
@@ -116,39 +121,41 @@ fn main() -> anyhow::Result<()> {
 
         thread::spawn(move || {
             info!("MQTT Listening for messages");
-    
+        
             while let Some(msg) = connection.next() {
+                info!("Before match");
                 match msg {
                     Err(e) => info!("MQTT Message ERROR: {}", e),
                     Ok(msg) => info!("MQTT Message: {:?}", msg),
                 }
+                info!("After match");
             }
     
             info!("MQTT connection loop exit");
         });
 
-        client.subscribe("esp-clock/measurements", QoS::AtMostOnce);
+       client.subscribe("esp-clock/measurements", QoS::AtLeastOnce);
 
         info!("Subscribed to \"measurements\" topic!");
 
-        client.publish("esp-clock/measurements", QoS::AtMostOnce, false, "Is someone there?".as_bytes())?;
+        // client.publish("esp-clock/measurements", QoS::AtLeastOnce, false, "Ya yebal v rot".as_bytes())?;
 
-        info!("Published a message to topic");
+        // info!("Published a message to topic");
+      
       
 
         loop {
-    
             let measurement = sht.get_measurement_result().unwrap();
             let message = format!("TEMP : {:.2}°C\tHUM : {:.3}", measurement.temperature.as_degrees_celsius(),
                                                                          measurement.humidity.as_percent());
             info!("About to send measurements : {}", message);
             
-            client.publish("measurements", QoS::AtMostOnce, false, message.as_bytes())?;
+            client.publish("esp-clock/measurements", QoS::AtLeastOnce, false, message.as_bytes())?;
             info!("Message sent!\n\tAbout to start new measurement and sleep a bit");
 
             sht.start_measurement(PowerMode::LowPower);
 
-            thread::sleep(Duration::from_secs(5));
+            thread::sleep(Duration::from_secs(2));
         }
     }
 
