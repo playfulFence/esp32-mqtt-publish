@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, sync::mpsc::Receiver};
 use std::f32::consts::E;
 use std::io::Write;
 use std::net::TcpStream;
@@ -8,7 +8,8 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::bail;
-use esp_idf_hal::prelude::Peripherals;
+use embedded_svc::mqtt::client::Message;
+use esp_idf_hal::{prelude::Peripherals, spi::MasterBus};
 use log::info;
 
 
@@ -23,8 +24,8 @@ use esp_idf_svc::{
     log::EspLogger,
     mqtt::client::*,
 };
-use embedded_svc::mqtt::client::{Client, Connection, MessageImpl, Publish, QoS};
-
+use embedded_svc::mqtt::client::{Client, Connection, MessageImpl, Publish, QoS, Event::*};
+use std::str;
 
 use esp_idf_hal::prelude::*;
 use esp_idf_hal::*;
@@ -101,12 +102,7 @@ fn main() -> anyhow::Result<()> {
 
         info!("About to connect mqtt-client");
         let (mut client, mut connection) = 
-            EspMqttClient::new_with_conn(broker_url, &mqtt_config)?;//, move |message_event| {
-            //         match message_event {
-            //             Err(e) => info!("MQTT Message ERROR: {}", e),
-            //             Ok(msg) => info!("MQTT Message: {:?}", msg),
-            //         }
-            // })?;
+            EspMqttClient::new_with_conn(broker_url, &mqtt_config)?;
 
         info!("Connected");
 
@@ -126,7 +122,17 @@ fn main() -> anyhow::Result<()> {
                 info!("Before match");
                 match msg {
                     Err(e) => info!("MQTT Message ERROR: {}", e),
-                    Ok(msg) => info!("MQTT Message: {:?}", msg),
+                    Ok(message) => {
+                        match message {
+                            Received(recieved_bytes) => {
+                                match str::from_utf8(recieved_bytes.data()) {
+                                    Err(e) => info!("MQTT Error : unreadable message! ({})", e),
+                                    Ok(measurements) => info!("MQTT Message {}", measurements)
+                                }
+                            },
+                            _ => info!("Unknown MQTT message (TODO)"),
+                        } 
+                    },
                 }
                 info!("After match");
             }
@@ -137,11 +143,6 @@ fn main() -> anyhow::Result<()> {
        client.subscribe("esp-clock/measurements", QoS::AtLeastOnce);
 
         info!("Subscribed to \"measurements\" topic!");
-
-        // client.publish("esp-clock/measurements", QoS::AtLeastOnce, false, "Ya yebal v rot".as_bytes())?;
-
-        // info!("Published a message to topic");
-      
       
 
         loop {
