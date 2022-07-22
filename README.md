@@ -1,17 +1,17 @@
-# ESP32 MQTT Publish with Rust
+# ESP32C3-RUST-BOARD MQTT Publish :crab:
 
-Accompanying code for [https://medium.com/iotics/esp32-mqtt-publish-with-rust-678d1068ee2](https://medium.com/iotics/esp32-mqtt-publish-with-rust-678d1068ee2).
+This project is created for my [esp-clock](https://github.com/playfulFence/esp-clock) project. It has an option that requires measurements data to be received via **MQTT**.
 
-# Find out the serial port
+So this project is MQTT publisher, which takes data from [RUST-BOARD's](https://github.com/esp-rs/esp-rust-board) sensors and publishes it MQTT-topic
 
+> Both projects are dedicated to it, but you can easily adapt this code for your needs :wink:
+
+<br>
+
+## Short guide
+
+1. Set all of "credentials" and the **topic name** in **`cfg.toml`** file.
+2. Flash the code with [espflash](https://github.com/esp-rs/espflash/tree/master/espflash) and choose corresponding **serial port**
 ```bash
-espflash board-info
-```
-
-# Build, Flash & Monitor
-
-```bash
-cargo build
-espflash <SERIAL-PORT> target/xtensa-esp32-espidf/debug/esp32_mqtt_publish
-espmonitor <SERIAL-PORT>
+cargo espflash --release --monitor 
 ```
