@@ -19,7 +19,7 @@ log = "0.4.17"
 embedded-hal            = "0.2.7"
 embedded-svc            = "0.22.0"
 esp-idf-hal             = "0.38.0"
-esp-idf-svc             = "0.42.0"
+esp-idf-svc             = "0.42.1"
 esp-idf-sys = { version = "0.31.6", features = ["binstart"] } # `native` uses ESP-IDF instead of PlatformIO
 icm42670                = { git = "https://github.com/jessebraham/icm42670" }
 shtcx = "0.10.0"
@@ -29,6 +29,3 @@ toml-cfg = "0.1.3"
 [build-dependencies]
 anyhow = "1.0.58"
 embuild = "0.29.2"
-
-[patch.crates-io]
-esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal", branch = "bugfix/pthread_convar_timeout_relative" }

@@ -109,10 +109,6 @@ fn main() -> anyhow::Result<()> {
     // Note that when using the alternative constructor - `EspMqttClient::new` - you don't need to
     // spawn a new thread, as the messages will be pumped with a backpressure into the callback you provide.
     // Yet, you still need to efficiently process each message in the callback without blocking for too long.
-    //
-    // Note also that if you go to http://tools.emqx.io/ and then connect and send a message to topic
-    // "rust-esp32-std-demo", the client configured here should receive it.
-
 
     thread::spawn(move || {
         info!("MQTT Listening for messages");
@@ -125,7 +121,7 @@ fn main() -> anyhow::Result<()> {
                         Received(recieved_bytes) => {
                             match str::from_utf8(recieved_bytes.data()) {
                                 Err(e) => info!("MQTT Error : unreadable message! ({})", e),
-                                Ok(measurements) => info!("MQTT Message {}", measurements)
+                                Ok(measurements) => info!("MQTT Message : {}", measurements)
                             }
                         },
                         BeforeConnect => info!("MQTT Message : Before connect"),
@@ -155,7 +151,7 @@ fn main() -> anyhow::Result<()> {
             code panicking if you're trying to take measurements "too early" */
         sht.start_measurement(PowerMode::NormalMode);
 
-        thread::sleep(Duration::from_secs(5));
+        thread::sleep(Duration::from_secs(8));
     }
 
     Ok(())
