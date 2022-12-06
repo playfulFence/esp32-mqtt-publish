@@ -1,5 +1,6 @@
 [package]
 name = "esp32-mqtt-publish"
+authors = ["Kirill Mikhailov <kirill.mikhailov@espressif.com>"]
 version = "0.1.0"
 edition = "2021"
 
@@ -15,12 +16,12 @@ opt-level = "z"
 anyhow = { version = "1.0.58", features = ["backtrace"] }
 log = "0.4.17"
 
-# ESP32 crates
+
 embedded-hal            = "0.2.7"
-embedded-svc            = "0.22.0"
-esp-idf-hal             = "0.38.0"
-esp-idf-svc             = "0.42.1"
-esp-idf-sys = { version = "0.31.6", features = ["binstart"] } # `native` uses ESP-IDF instead of PlatformIO
+embedded-svc            = "0.23.1"
+esp-idf-hal             = "0.39.3"
+esp-idf-svc             = { version = "0.43.4", features = ["std", "experimental"] }
+esp-idf-sys             = { version = "0.31.11", features = ["binstart"] }
 icm42670                = { git = "https://github.com/jessebraham/icm42670" }
 shtcx = "0.10.0"
 shared-bus = "0.2.4"

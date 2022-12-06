@@ -1,6 +1,7 @@
 use std::time::Duration;
-use anyhow::bail;
-use log::info;
+use anyhow::*;
+use log::*;
+use std::result::Result::Ok;
 
 // Common IDF stuff 
 use esp_idf_hal::prelude::*;
@@ -8,7 +9,7 @@ use esp_idf_hal::*;
 use esp_idf_sys::*;
 
 // Peripheral stuff
-use esp_idf_hal::{prelude::Peripherals, spi::MasterBus};
+use esp_idf_hal::{prelude::Peripherals};
 
 // Multithreading
 use std::sync::mpsc::channel;
@@ -24,10 +25,9 @@ use std::str;
 
 // Wi-Fi
 use embedded_svc::wifi::*;
-use esp_idf_svc::netif::EspNetifStack;
-use esp_idf_svc::nvs::EspDefaultNvs;
-use esp_idf_svc::sysloop::EspSysLoopStack;
-use esp_idf_svc::wifi::EspWifi;
+use esp_idf_svc::netif::*;
+use esp_idf_svc::eventloop::*;
+use esp_idf_svc::wifi::*;
 use std::sync::Arc;
 
 
@@ -59,20 +59,16 @@ fn main() -> anyhow::Result<()> {
 
     let app_config = CONFIG; 
 
-    /* Setup some stuff for WiFi initialization */
-    let netif_stack = Arc::new(EspNetifStack::new()?);
-    let sys_loop_stack = Arc::new(EspSysLoopStack::new()?);
-    let default_nvs = Arc::new(EspDefaultNvs::new()?);
-
-
     let peripherals = Peripherals::take().unwrap();
+    let sysloop = EspSystemEventLoop::take()?;
 
     let i2c = peripherals.i2c0;
     let sda = peripherals.pins.gpio10;
     let scl = peripherals.pins.gpio8;
 
-    let config = <i2c::config::MasterConfig as Default>::default().baudrate(100.kHz().into());
-    let mut i2c = i2c::Master::<i2c::I2C0, _, _>::new(i2c, i2c::MasterPins { sda, scl }, config)?;
+    let config = <i2c::config::Config>::default().baudrate(100.kHz().into());
+    let i2c = i2c::I2cDriver::new(i2c, sda, scl, &config)?;
+
 
     let bus = BusManagerSimple::new(i2c);
     //let mut icm = Icm42670::new(bus.acquire_i2c(), Address::Primary).unwrap(); // in case you want to collect gyroscope and accelerometer data
@@ -84,13 +80,7 @@ fn main() -> anyhow::Result<()> {
 
 
     info!("About to initialize WiFi (SSID: {}, PASS: {})", app_config.wifi_ssid, app_config.wifi_pass);    
-    let _wifi = wifi(
-            netif_stack.clone(),
-            sys_loop_stack.clone(),
-            default_nvs.clone(),
-            app_config.wifi_ssid,
-            app_config.wifi_pass,
-        )?;
+    let mut wifi = wifi(peripherals.modem, sysloop.clone(), app_config.wifi_ssid, app_config.wifi_pass);
 
     
     let mqtt_config = MqttClientConfiguration {
@@ -138,6 +128,8 @@ fn main() -> anyhow::Result<()> {
         info!("MQTT connection loop exit");
     });
 
+    client.subscribe(app_config.topic_name, QoS::AtLeastOnce);
+
     loop {
         let measurement = sht.get_measurement_result().unwrap();
         let message = format!("{:.0}°C {:.0}%RH", measurement.temperature.as_degrees_celsius(),
@@ -159,42 +151,78 @@ fn main() -> anyhow::Result<()> {
 
 
 fn wifi(
-    netif_stack: Arc<EspNetifStack>,
-    sys_loop_stack: Arc<EspSysLoopStack>,
-    default_nvs: Arc<EspDefaultNvs>,
-    wifi_ssid : &str,
-    wifi_password :&str,
-) -> anyhow::Result<Box<EspWifi>> {
-    let mut wifi = Box::new(EspWifi::new(netif_stack, sys_loop_stack, default_nvs)?);
+    modem: impl peripheral::Peripheral<P = esp_idf_hal::modem::Modem> + 'static,
+    sysloop: EspSystemEventLoop,
+    wifi_ssid : &str, 
+    wifi_password : &str, 
+) -> Result<Box<EspWifi<'static>>> {
+    use std::net::Ipv4Addr;
 
-    wifi.set_configuration(&Configuration::Client(ClientConfiguration {
-        ssid: wifi_ssid.into(),
-        password: wifi_password.into(),
-        auth_method: AuthMethod::None,
-        ..Default::default()
-    }))?;
+    let mut wifi = Box::new(EspWifi::new(modem, sysloop.clone(), None)?);
 
-    println!("Wifi configuration set, about to get status");
+    info!("Wifi created, about to scan");
 
-    wifi.wait_status_with_timeout(Duration::from_secs(20), |status| !status.is_transitional())
-        .map_err(|e| anyhow::anyhow!("Unexpected Wifi status: {:?}", e))?;
+    let ap_infos = wifi.scan()?;
 
-    info!("to get status");
-    let status = wifi.get_status();
+    let ours = ap_infos.into_iter().find(|a| a.ssid == wifi_ssid);
 
-    info!("got status)");
-    if let Status(
-        ClientStatus::Started(ClientConnectionStatus::Connected(ClientIpStatus::Done(
-            _ip_settings,
-        ))),
-        _,
-    ) = status
+    let channel = if let Some(ours) = ours {
+        info!(
+            "Found configured access point {} on channel {}",
+            wifi_ssid, ours.channel
+        );
+        Some(ours.channel)
+    } else {
+        info!(
+            "Configured access point {} not found during scanning, will go with unknown channel",
+            wifi_ssid
+        );
+        None
+    };
+
+    wifi.set_configuration(&Configuration::Mixed(
+        ClientConfiguration {
+            ssid: wifi_ssid.into(),
+            password: wifi_password.into(),
+            channel,
+            ..Default::default()
+        },
+        AccessPointConfiguration {
+            ssid: "aptest".into(),
+            channel: channel.unwrap_or(1),
+            ..Default::default()
+        },
+    ))?;
+
+    wifi.start()?;
+
+    info!("Starting wifi...");
+
+    if !WifiWait::new(&sysloop)?
+        .wait_with_timeout(Duration::from_secs(20), || wifi.is_started().unwrap())
     {
-        println!("Wifi connected");
-    } 
-    else {
-        bail!("Unexpected Wifi status: {:?}", status);
+        bail!("Wifi did not start");
     }
+
+    info!("Connecting wifi...");
+
+    wifi.connect()?;
+
+    if !EspNetifWait::new::<EspNetif>(wifi.sta_netif(), &sysloop)?.wait_with_timeout(
+        Duration::from_secs(20),
+        || {
+            wifi.is_connected().unwrap()
+                && wifi.sta_netif().get_ip_info().unwrap().ip != Ipv4Addr::new(0, 0, 0, 0)
+        },
+    ) {
+        bail!("Wifi did not connect or did not receive a DHCP lease");
+    }
+
+    let ip_info = wifi.sta_netif().get_ip_info()?;
+
+    info!("Wifi DHCP info: {:?}", ip_info);
+
+    // ping(ip_info.subnet.gateway)?;
 
     Ok(wifi)
 }
