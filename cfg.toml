@@ -1,7 +1,7 @@
 [esp32-mqtt-publish]
 mqtt_user = "esp32c3_rust_board_publisher"
 broker_url = "mqtt://broker.hivemq.com:1883"
-wifi_ssid = "EspressifSystems"
-wifi_pass = "Espressif32"
-topic_name = "default_topic_name" 
+wifi_ssid = "REPLACE_ME_SSID"
+wifi_pass = "REPLACE_ME_PASS"
+topic_name = "topkek" 
 
